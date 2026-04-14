@@ -14,7 +14,36 @@ export interface ExtractVideoRequest {
   url: string;
 }
 
+export type QualityOptionSourceType =
+  (typeof QualityOptionSourceType)[keyof typeof QualityOptionSourceType];
+
+export const QualityOptionSourceType = {
+  mp4: "mp4",
+  hls: "hls",
+} as const;
+
+export interface QualityOption {
+  label: string;
+  quality: string;
+  url: string;
+  downloadUrl: string;
+  sourceType: QualityOptionSourceType;
+  /** @nullable */
+  width: number | null;
+  /** @nullable */
+  height: number | null;
+}
+
+export type ExtractVideoResponsePlatform =
+  (typeof ExtractVideoResponsePlatform)[keyof typeof ExtractVideoResponsePlatform];
+
+export const ExtractVideoResponsePlatform = {
+  yappy: "yappy",
+  rutube: "rutube",
+} as const;
+
 export interface ExtractVideoResponse {
+  platform: ExtractVideoResponsePlatform;
   videoUrl: string;
   downloadUrl: string;
   /** @nullable */
@@ -24,6 +53,7 @@ export interface ExtractVideoResponse {
   /** @nullable */
   title: string | null;
   quality: string;
+  qualities: QualityOption[];
 }
 
 export interface ErrorResponse {

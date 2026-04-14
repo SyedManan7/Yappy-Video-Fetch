@@ -16,7 +16,7 @@ export const HealthCheckResponse = zod.object({
 });
 
 /**
- * Fetches a yappy.media page and returns the best direct MP4 URL plus metadata when available.
+ * Fetches a supported video page and returns the best direct media URL plus metadata when available.
  * @summary Extract a direct video file URL
  */
 
@@ -25,10 +25,22 @@ export const ExtractVideoBody = zod.object({
 });
 
 export const ExtractVideoResponse = zod.object({
+  platform: zod.enum(["yappy", "rutube"]),
   videoUrl: zod.string(),
   downloadUrl: zod.string(),
   hdVideoUrl: zod.string().nullable(),
   thumbnailUrl: zod.string().nullable(),
   title: zod.string().nullable(),
   quality: zod.string(),
+  qualities: zod.array(
+    zod.object({
+      label: zod.string(),
+      quality: zod.string(),
+      url: zod.string(),
+      downloadUrl: zod.string(),
+      sourceType: zod.enum(["mp4", "hls"]),
+      width: zod.number().nullable(),
+      height: zod.number().nullable(),
+    }),
+  ),
 });

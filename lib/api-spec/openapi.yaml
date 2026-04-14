@@ -30,7 +30,7 @@ paths:
       operationId: extractVideo
       tags: [downloader]
       summary: Extract a direct video file URL
-      description: Fetches a yappy.media page and returns the best direct MP4 URL plus metadata when available.
+      description: Fetches a supported video page and returns the best direct media URL plus metadata when available.
       requestBody:
         required: true
         content:
@@ -46,6 +46,12 @@ paths:
                 $ref: "#/components/schemas/ExtractVideoResponse"
         "400":
           description: Invalid URL or unsupported link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Private or restricted video
           content:
             application/json:
               schema:
@@ -79,9 +85,38 @@ components:
           minLength: 1
       required:
         - url
+    QualityOption:
+      type: object
+      properties:
+        label:
+          type: string
+        quality:
+          type: string
+        url:
+          type: string
+        downloadUrl:
+          type: string
+        sourceType:
+          type: string
+          enum: [mp4, hls]
+        width:
+          type: ["integer", "null"]
+        height:
+          type: ["integer", "null"]
+      required:
+        - label
+        - quality
+        - url
+        - downloadUrl
+        - sourceType
+        - width
+        - height
     ExtractVideoResponse:
       type: object
       properties:
+        platform:
+          type: string
+          enum: [yappy, rutube]
         videoUrl:
           type: string
         downloadUrl:
@@ -94,13 +129,19 @@ components:
           type: ["string", "null"]
         quality:
           type: string
+        qualities:
+          type: array
+          items:
+            $ref: "#/components/schemas/QualityOption"
       required:
+        - platform
         - videoUrl
         - downloadUrl
         - hdVideoUrl
         - thumbnailUrl
         - title
         - quality
+        - qualities
     ErrorResponse:
       type: object
       properties:

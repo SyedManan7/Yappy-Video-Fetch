@@ -109,7 +109,7 @@ export function useHealthCheck<
 }
 
 /**
- * Fetches a yappy.media page and returns the best direct MP4 URL plus metadata when available.
+ * Fetches a supported video page and returns the best direct media URL plus metadata when available.
  * @summary Extract a direct video file URL
  */
 export const getExtractVideoUrl = () => {

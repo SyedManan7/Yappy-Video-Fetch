@@ -9,4 +9,7 @@
 export * from "./errorResponse";
 export * from "./extractVideoRequest";
 export * from "./extractVideoResponse";
+export * from "./extractVideoResponsePlatform";
 export * from "./healthStatus";
+export * from "./qualityOption";
+export * from "./qualityOptionSourceType";

@@ -5,8 +5,11 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ExtractVideoResponsePlatform } from "./extractVideoResponsePlatform";
+import type { QualityOption } from "./qualityOption";
 
 export interface ExtractVideoResponse {
+  platform: ExtractVideoResponsePlatform;
   videoUrl: string;
   downloadUrl: string;
   /** @nullable */
@@ -16,4 +19,5 @@ export interface ExtractVideoResponse {
   /** @nullable */
   title: string | null;
   quality: string;
+  qualities: QualityOption[];
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -13,12 +13,29 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { VideoResult } from "@/components/video-result";
 
 const formSchema = z.object({
-  url: z.string().url({ message: "Please enter a valid URL." }).regex(/yappy\.media/i, { message: "Only yappy.media links are supported." }),
+  url: z.string().url({ message: "Please enter a valid URL." }).refine((value) => {
+    try {
+      const hostname = new URL(value).hostname.toLowerCase();
+      return hostname === "yappy.media" || hostname.endsWith(".yappy.media") || hostname === "rutube.ru" || hostname.endsWith(".rutube.ru");
+    } catch {
+      return false;
+    }
+  }, { message: "Use a yappy.media or rutube.ru link." }),
 });
+
+function detectPlatformLabel(url: string) {
+  try {
+    const hostname = new URL(url).hostname.toLowerCase();
+    if (hostname === "yappy.media" || hostname.endsWith(".yappy.media")) return "Yappy detected";
+    if (hostname === "rutube.ru" || hostname.endsWith(".rutube.ru")) return "Rutube detected";
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 export default function Home() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -27,6 +44,8 @@ export default function Home() {
   });
 
   const extractVideoMutation = useExtractVideo();
+  const watchedUrl = form.watch("url");
+  const detectedLabel = useMemo(() => detectPlatformLabel(watchedUrl), [watchedUrl]);
 
   const onSubmit = (values: z.infer<typeof formSchema>) => {
     setErrorMsg(null);
@@ -34,8 +53,8 @@ export default function Home() {
       { data: { url: values.url } },
       {
         onError: (error) => {
-          // Attempt to extract the error message from the ErrorResponse
-          const msg = (error as any)?.response?.data?.error || (error as Error).message || "An unexpected error occurred.";
+          const apiError = error as { data?: { error?: string }; response?: { data?: { error?: string } }; message?: string };
+          const msg = apiError?.data?.error || apiError?.response?.data?.error || apiError.message || "An unexpected error occurred.";
           setErrorMsg(msg);
         },
       }
@@ -57,14 +76,13 @@ export default function Home() {
       </header>
 
       <main className="flex-1 flex flex-col items-center justify-start pt-16 md:pt-24 px-4 pb-20 w-full max-w-4xl mx-auto gap-12">
-        
         <div className="w-full text-center space-y-4">
           <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight text-balance">
             Get your videos.<br />
             <span className="text-primary underline decoration-4 underline-offset-4">Fast and clean.</span>
           </h1>
           <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto">
-            Paste a yappy.media link below to instantly extract the direct video file. No watermarks, no login, just raw media.
+            Paste a yappy.media or rutube.ru link below to extract the best available video file. No login, just raw media when the page exposes it.
           </p>
         </div>
 
@@ -82,7 +100,7 @@ export default function Home() {
                           <Link2 className="w-6 h-6" />
                         </div>
                         <Input 
-                          placeholder="https://yappy.media/video/..." 
+                          placeholder="https://yappy.media/... or https://rutube.ru/video/..." 
                           className="pl-12 pr-32 h-16 md:h-20 text-lg md:text-xl rounded-2xl border-4 border-input focus-visible:ring-0 focus-visible:border-primary shadow-sm bg-card transition-all"
                           autoComplete="off"
                           autoCorrect="off"
@@ -109,7 +127,14 @@ export default function Home() {
                         </Button>
                       </div>
                     </FormControl>
-                    <FormMessage className="text-base text-center mt-2 font-medium" />
+                    <div className="min-h-7 mt-2 flex items-center justify-center">
+                      <FormMessage className="text-base text-center font-medium" />
+                      {!form.formState.errors.url && detectedLabel && (
+                        <span className="text-sm font-bold uppercase tracking-wide text-primary bg-primary/10 border border-primary/20 rounded-full px-3 py-1" data-testid="text-detected-platform">
+                          {detectedLabel}
+                        </span>
+                      )}
+                    </div>
                   </FormItem>
                 )}
               />
@@ -119,7 +144,7 @@ export default function Home() {
           {errorMsg && (
             <Alert variant="destructive" className="mt-6 border-2 animate-in slide-in-from-top-2">
               <AlertCircle className="h-5 w-5" />
-              <AlertTitle className="font-bold text-lg">Error Extraction Failed</AlertTitle>
+              <AlertTitle className="font-bold text-lg">Extraction failed</AlertTitle>
               <AlertDescription className="text-base">
                 {errorMsg}
               </AlertDescription>
@@ -136,7 +161,7 @@ export default function Home() {
       </main>
       
       <footer className="py-6 text-center text-muted-foreground text-sm">
-        Built for speed. Not affiliated with yappy.media.
+        Built for speed. Not affiliated with yappy.media or rutube.ru.
       </footer>
     </div>
   );

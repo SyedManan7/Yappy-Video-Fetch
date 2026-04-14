@@ -1,16 +1,19 @@
 # Yappy Video Downloader
 
-A clean no-login web app for extracting a direct video file from a public `yappy.media` video page, previewing it, copying the direct link, and downloading the best available file.
+A clean no-login web app for extracting video sources from public `yappy.media` and `rutube.ru` video pages, previewing them, choosing quality, copying the source link, and downloading the best available file.
 
 ## Features
 
-- Paste a `yappy.media` video URL
-- Server-side page fetch and direct video source extraction
-- MP4/direct media preview before download
-- Download button using the best or HD URL when available
+- Paste one `yappy.media` or `rutube.ru` video URL into a single input
+- Automatic platform detection
+- Server-side page fetch and page JSON/player config parsing
+- Yappy direct media extraction
+- Rutube player data, stream, and HLS (`.m3u8`) extraction
+- Quality options when multiple streams are available
+- MP4 download for direct files and HLS-to-MP4 conversion route when needed
 - Thumbnail and title detection when available
-- Invalid link detection and friendly errors
-- Copy direct video link button
+- Invalid, unsupported, private/restricted link handling
+- Copy selected download link and source link buttons
 - Dark/light UI toggle
 - Mobile-friendly centered card layout
 
@@ -60,7 +63,7 @@ Request:
 
 ```json
 {
-  "url": "https://yappy.media/..."
+  "url": "https://rutube.ru/video/..."
 }
 ```
 
@@ -68,12 +71,24 @@ Success response:
 
 ```json
 {
-  "videoUrl": "https://.../video.mp4",
-  "downloadUrl": "https://.../video.mp4",
-  "hdVideoUrl": null,
+  "platform": "rutube",
+  "videoUrl": "https://.../playlist.m3u8",
+  "downloadUrl": "/api/convert?source=...",
+  "hdVideoUrl": "https://.../playlist.m3u8",
   "thumbnailUrl": "https://.../thumbnail.jpg",
   "title": "Video title",
-  "quality": "Best available"
+  "quality": "1080p",
+  "qualities": [
+    {
+      "label": "1080p",
+      "quality": "1080p",
+      "url": "https://.../playlist.m3u8",
+      "downloadUrl": "/api/convert?source=...",
+      "sourceType": "hls",
+      "width": 1920,
+      "height": 1080
+    }
+  ]
 }
 ```
 
@@ -81,9 +96,13 @@ Error response:
 
 ```json
 {
-  "error": "Only yappy.media video links are supported."
+  "error": "Unsupported link. Please use yappy.media or rutube.ru."
 }
 ```
+
+### GET `/api/convert`
+
+Used internally for signed HLS-to-MP4 downloads when a Rutube source is only available as `.m3u8`. This requires `ffmpeg` on the server.
 
 ## Deployment
 
@@ -98,6 +117,7 @@ Deploy the API as a Node web service:
 - Build command: `pnpm install && pnpm --filter @workspace/api-server run build`
 - Start command: `pnpm --filter @workspace/api-server run start`
 - Set `PORT` from Render's provided environment.
+- Ensure `ffmpeg` is available if you want HLS-to-MP4 conversion downloads for Rutube streams.
 
 Deploy the frontend as a static site:
 
@@ -113,8 +133,8 @@ Deploy the frontend as a Vite static project:
 - Build command: `pnpm --filter @workspace/yappy-video-downloader run build`
 - Output directory: `artifacts/yappy-video-downloader/dist/public`
 
-Deploy the Express API separately on Render or another Node host, then configure Vercel rewrites or an environment-specific API base so `/api/extract` reaches the backend.
+Deploy the Express API separately on Render or another Node host, then configure Vercel rewrites or an environment-specific API base so `/api/extract` and `/api/convert` reach the backend.
 
 ## Important Note
 
-This app extracts direct video URLs exposed in public page HTML or page data. It does not bypass private content, authentication, DRM, or platform restrictions.
+This app extracts video URLs exposed in public page HTML, page JSON, player config, or public stream playlists. It does not bypass private content, authentication, DRM, or platform restrictions.

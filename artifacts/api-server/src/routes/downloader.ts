@@ -1,25 +1,53 @@
+import { spawn } from "node:child_process";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter } from "express";
+import axios from "axios";
 import { ExtractVideoBody, ExtractVideoResponse } from "@workspace/api-zod";
 
+type Platform = "yappy" | "rutube";
+type SourceType = "mp4" | "hls";
+
+type QualityOption = {
+  label: string;
+  quality: string;
+  url: string;
+  downloadUrl: string;
+  sourceType: SourceType;
+  width: number | null;
+  height: number | null;
+};
+
 type ExtractedVideo = {
+  platform: Platform;
   videoUrl: string;
   downloadUrl: string;
   hdVideoUrl: string | null;
   thumbnailUrl: string | null;
   title: string | null;
   quality: string;
+  qualities: QualityOption[];
 };
 
 type Candidate = {
   url: string;
   score: number;
+  sourceType: SourceType;
+  width: number | null;
+  height: number | null;
+  label: string | null;
 };
 
 const router: IRouter = Router();
 
 const YAPPY_HOST_PATTERN = /(^|\.)yappy\.media$/i;
-const VIDEO_URL_PATTERN =
-  /https?:\\?\/\\?\/[^"'\\\s<>]+?\.(?:mp4|mov|webm|m4v)(?:\?[^"'\\\s<>]*)?/gi;
+const RUTUBE_HOST_PATTERN = /(^|\.)rutube\.ru$/i;
+const MEDIA_URL_PATTERN =
+  /https?:\\?\/\\?\/[^"'\\\s<>]+?\.(?:mp4|mov|webm|m4v|m3u8)(?:\?[^"'\\\s<>]*)?/gi;
+const requestHeaders = {
+  accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "user-agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+};
 
 function decodeHtmlEntities(value: string): string {
   return value
@@ -66,18 +94,81 @@ function getMetaContent(html: string, names: string[]): string | null {
   return null;
 }
 
-function scoreVideoUrl(url: string): number {
-  const lower = url.toLowerCase();
-  let score = 1;
+function getSourceType(url: string): SourceType {
+  return url.toLowerCase().includes(".m3u8") ? "hls" : "mp4";
+}
 
-  if (lower.includes(".mp4")) score += 80;
+function getResolution(url: string): { width: number | null; height: number | null } {
+  const lower = url.toLowerCase();
+  const heightMatch = lower.match(/(?:^|[^0-9])([1-9][0-9]{2,3})p(?:[^0-9]|$)/);
+  if (heightMatch?.[1]) {
+    return { width: null, height: Number(heightMatch[1]) };
+  }
+
+  const resolutionMatch = lower.match(/([1-9][0-9]{2,4})x([1-9][0-9]{2,4})/);
+  if (resolutionMatch?.[1] && resolutionMatch[2]) {
+    return { width: Number(resolutionMatch[1]), height: Number(resolutionMatch[2]) };
+  }
+
+  return { width: null, height: null };
+}
+
+function scoreVideoUrl(url: string, sourceType = getSourceType(url)): number {
+  const lower = url.toLowerCase();
+  let score = sourceType === "mp4" ? 100 : 60;
+
   if (lower.includes("1080") || lower.includes("fullhd")) score += 40;
   if (lower.includes("720") || lower.includes("hd")) score += 25;
   if (lower.includes("480")) score += 10;
   if (lower.includes("watermark")) score -= 100;
   if (lower.includes("preview") || lower.includes("thumb")) score -= 15;
 
+  const { height } = getResolution(url);
+  if (height) score += height / 20;
+
   return score;
+}
+
+function signSource(source: string): string {
+  const secret = process.env.SESSION_SECRET ?? "development-only-yappy-downloader";
+  return createHmac("sha256", secret).update(source).digest("hex");
+}
+
+function isValidSignature(source: string, sig: string): boolean {
+  const expected = signSource(source);
+  const expectedBuffer = Buffer.from(expected, "hex");
+  const actualBuffer = Buffer.from(sig, "hex");
+
+  return expectedBuffer.length === actualBuffer.length && timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
+function getDownloadUrl(url: string, sourceType: SourceType): string {
+  if (sourceType === "mp4") {
+    return url;
+  }
+
+  const params = new URLSearchParams({ source: url, sig: signSource(url) });
+  return `/api/convert?${params.toString()}`;
+}
+
+function makeQualityLabel(candidate: Candidate): string {
+  if (candidate.label) return candidate.label;
+  if (candidate.height) return `${candidate.height}p`;
+  if (candidate.sourceType === "hls") return "HLS stream";
+  return "Direct MP4";
+}
+
+function toQualityOption(candidate: Candidate): QualityOption {
+  const label = makeQualityLabel(candidate);
+  return {
+    label,
+    quality: label,
+    url: candidate.url,
+    downloadUrl: getDownloadUrl(candidate.url, candidate.sourceType),
+    sourceType: candidate.sourceType,
+    width: candidate.width,
+    height: candidate.height,
+  };
 }
 
 function addCandidate(
@@ -85,21 +176,32 @@ function addCandidate(
   rawUrl: string | null | undefined,
   baseUrl: URL,
   scoreBoost = 0,
+  label: string | null = null,
+  resolution?: { width: number | null; height: number | null },
 ): void {
   if (!rawUrl) return;
 
   const normalized = normalizeUrl(rawUrl, baseUrl);
   if (!normalized) return;
 
-  if (!/\.(mp4|mov|webm|m4v)(?:\?|$)/i.test(normalized)) {
+  if (!/\.(mp4|mov|webm|m4v|m3u8)(?:\?|$)/i.test(normalized)) {
     return;
   }
 
-  const score = scoreVideoUrl(normalized) + scoreBoost;
+  const sourceType = getSourceType(normalized);
+  const detectedResolution = resolution ?? getResolution(normalized);
+  const score = scoreVideoUrl(normalized, sourceType) + scoreBoost;
   const existing = candidates.get(normalized);
 
   if (!existing || score > existing.score) {
-    candidates.set(normalized, { url: normalized, score });
+    candidates.set(normalized, {
+      url: normalized,
+      score,
+      sourceType,
+      width: detectedResolution.width,
+      height: detectedResolution.height,
+      label,
+    });
   }
 }
 
@@ -136,6 +238,8 @@ function collectFromJson(
         lowerKey.includes("video") ||
         lowerKey.includes("contenturl") ||
         lowerKey.includes("download") ||
+        lowerKey.includes("m3u8") ||
+        lowerKey.includes("hls") ||
         lowerKey === "src" ||
         lowerKey === "url"
       ) {
@@ -168,7 +272,35 @@ function extractJsonScriptBodies(html: string): string[] {
   return bodies;
 }
 
-function extractVideoData(html: string, pageUrl: URL): ExtractedVideo | null {
+function buildExtractedVideo(
+  platform: Platform,
+  candidates: Map<string, Candidate>,
+  thumbnails: Set<string>,
+  titles: Set<string>,
+): ExtractedVideo | null {
+  const sorted = [...candidates.values()].sort((a, b) => b.score - a.score);
+  const best = sorted[0];
+
+  if (!best) return null;
+
+  const qualities = sorted.map(toQualityOption);
+  const bestQuality = qualities[0];
+  const hd = sorted.find((candidate) => candidate.height ? candidate.height >= 720 : /(?:1080|720|fullhd|hd)/i.test(candidate.url));
+  const hdOption = hd ? toQualityOption(hd) : null;
+
+  return {
+    platform,
+    videoUrl: best.url,
+    downloadUrl: bestQuality.downloadUrl,
+    hdVideoUrl: hdOption?.url ?? null,
+    thumbnailUrl: thumbnails.values().next().value ?? null,
+    title: titles.values().next().value ?? null,
+    quality: bestQuality.quality,
+    qualities,
+  };
+}
+
+function extractYappyVideoData(html: string, pageUrl: URL): ExtractedVideo | null {
   const candidates = new Map<string, Candidate>();
   const thumbnails = new Set<string>();
   const titles = new Set<string>();
@@ -201,7 +333,7 @@ function extractVideoData(html: string, pageUrl: URL): ExtractedVideo | null {
 
   const decodedHtml = decodeHtmlEntities(html);
   let urlMatch: RegExpExecArray | null;
-  while ((urlMatch = VIDEO_URL_PATTERN.exec(decodedHtml)) !== null) {
+  while ((urlMatch = MEDIA_URL_PATTERN.exec(decodedHtml)) !== null) {
     addCandidate(candidates, urlMatch[0], pageUrl);
   }
 
@@ -210,39 +342,182 @@ function extractVideoData(html: string, pageUrl: URL): ExtractedVideo | null {
       collectFromJson(JSON.parse(body), pageUrl, candidates, thumbnails, titles);
     } catch {
       let scriptUrlMatch: RegExpExecArray | null;
-      while ((scriptUrlMatch = VIDEO_URL_PATTERN.exec(body)) !== null) {
+      while ((scriptUrlMatch = MEDIA_URL_PATTERN.exec(body)) !== null) {
         addCandidate(candidates, scriptUrlMatch[0], pageUrl);
       }
     }
   }
 
-  const sorted = [...candidates.values()].sort((a, b) => b.score - a.score);
-  const best = sorted[0];
+  return buildExtractedVideo("yappy", candidates, thumbnails, titles);
+}
 
-  if (!best) {
-    return null;
+function getRutubeId(pageUrl: URL, html: string): string | null {
+  const directMatch = pageUrl.pathname.match(/\/(?:video|shorts|play\/embed)\/([a-f0-9-]{16,})/i);
+  if (directMatch?.[1]) return directMatch[1];
+
+  const htmlMatch = html.match(/(?:videoId|video_id|videoIdHash|id)["']?\s*[:=]\s*["']([a-f0-9-]{16,})["']/i);
+  return htmlMatch?.[1] ?? null;
+}
+
+async function addM3u8Variants(masterUrl: string, candidates: Map<string, Candidate>, baseUrl: URL): Promise<void> {
+  try {
+    const response = await axios.get<string>(masterUrl, {
+      headers: requestHeaders,
+      responseType: "text",
+      timeout: 15000,
+    });
+    const lines = response.data.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (!line.startsWith("#EXT-X-STREAM-INF")) continue;
+
+      const nextLine = lines[index + 1];
+      if (!nextLine || nextLine.startsWith("#")) continue;
+
+      const resolutionMatch = line.match(/RESOLUTION=(\d+)x(\d+)/i);
+      const width = resolutionMatch?.[1] ? Number(resolutionMatch[1]) : null;
+      const height = resolutionMatch?.[2] ? Number(resolutionMatch[2]) : null;
+      const label = height ? `${height}p` : "HLS stream";
+      addCandidate(candidates, nextLine, new URL(masterUrl), 50 + (height ?? 0) / 10, label, { width, height });
+    }
+  } catch {
+    addCandidate(candidates, masterUrl, baseUrl, 20, "HLS stream");
+  }
+}
+
+async function extractRutubeVideoData(html: string, pageUrl: URL): Promise<ExtractedVideo | null> {
+  const candidates = new Map<string, Candidate>();
+  const thumbnails = new Set<string>();
+  const titles = new Set<string>();
+
+  const title = getMetaContent(html, ["og:title", "twitter:title"]);
+  if (title) titles.add(title);
+
+  const thumbnail = getMetaContent(html, ["og:image", "twitter:image", "thumbnail"]);
+  if (thumbnail) {
+    const normalizedThumbnail = normalizeUrl(thumbnail, pageUrl);
+    if (normalizedThumbnail) thumbnails.add(normalizedThumbnail);
   }
 
-  const hd = sorted.find((candidate) =>
-    /(?:1080|720|fullhd|hd)/i.test(candidate.url),
-  );
-  const selected = hd ?? best;
+  for (const body of extractJsonScriptBodies(html)) {
+    try {
+      collectFromJson(JSON.parse(body), pageUrl, candidates, thumbnails, titles);
+    } catch {
+      let scriptUrlMatch: RegExpExecArray | null;
+      while ((scriptUrlMatch = MEDIA_URL_PATTERN.exec(body)) !== null) {
+        addCandidate(candidates, scriptUrlMatch[0], pageUrl);
+      }
+    }
+  }
 
-  return {
-    videoUrl: best.url,
-    downloadUrl: selected.url,
-    hdVideoUrl: hd?.url ?? null,
-    thumbnailUrl: thumbnails.values().next().value ?? null,
-    title: titles.values().next().value ?? null,
-    quality: hd ? "HD" : "Best available",
-  };
+  let urlMatch: RegExpExecArray | null;
+  const decodedHtml = decodeHtmlEntities(html);
+  while ((urlMatch = MEDIA_URL_PATTERN.exec(decodedHtml)) !== null) {
+    addCandidate(candidates, urlMatch[0], pageUrl);
+  }
+
+  const videoId = getRutubeId(pageUrl, html);
+  if (videoId) {
+    const apiUrls = [
+      `https://rutube.ru/api/play/options/${videoId}/?format=json`,
+      `https://rutube.ru/api/video/${videoId}/`,
+    ];
+
+    for (const apiUrl of apiUrls) {
+      try {
+        const response = await axios.get<unknown>(apiUrl, {
+          headers: { ...requestHeaders, accept: "application/json,text/plain,*/*" },
+          timeout: 15000,
+        });
+        collectFromJson(response.data, new URL(apiUrl), candidates, thumbnails, titles);
+      } catch {
+        continue;
+      }
+    }
+  }
+
+  const hlsCandidates = [...candidates.values()].filter((candidate) => candidate.sourceType === "hls");
+  await Promise.all(hlsCandidates.map((candidate) => addM3u8Variants(candidate.url, candidates, pageUrl)));
+
+  return buildExtractedVideo("rutube", candidates, thumbnails, titles);
 }
+
+function getPlatform(pageUrl: URL): Platform | null {
+  if (YAPPY_HOST_PATTERN.test(pageUrl.hostname)) return "yappy";
+  if (RUTUBE_HOST_PATTERN.test(pageUrl.hostname)) return "rutube";
+  return null;
+}
+
+router.get("/convert", (req, res): void => {
+  const source = typeof req.query.source === "string" ? req.query.source : "";
+  const sig = typeof req.query.sig === "string" ? req.query.sig : "";
+
+  if (!source || !sig || !isValidSignature(source, sig)) {
+    res.status(400).json({ error: "Invalid conversion link." });
+    return;
+  }
+
+  let sourceUrl: URL;
+  try {
+    sourceUrl = new URL(source);
+  } catch {
+    res.status(400).json({ error: "Invalid stream URL." });
+    return;
+  }
+
+  if (!sourceUrl.protocol.startsWith("http")) {
+    res.status(400).json({ error: "Invalid stream URL." });
+    return;
+  }
+
+  res.setHeader("Content-Type", "video/mp4");
+  res.setHeader("Content-Disposition", 'attachment; filename="rutube-video.mp4"');
+
+  const ffmpeg = spawn("ffmpeg", [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-headers",
+    `User-Agent: ${requestHeaders["user-agent"]}\r\n`,
+    "-i",
+    source,
+    "-c",
+    "copy",
+    "-bsf:a",
+    "aac_adtstoasc",
+    "-movflags",
+    "frag_keyframe+empty_moov",
+    "-f",
+    "mp4",
+    "pipe:1",
+  ]);
+
+  ffmpeg.stdout.pipe(res);
+  ffmpeg.stderr.on("data", (chunk: Buffer) => {
+    req.log.warn({ ffmpeg: chunk.toString() }, "HLS conversion warning");
+  });
+  ffmpeg.on("error", (error) => {
+    req.log.error({ err: error }, "HLS conversion failed to start");
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Video conversion is not available on this server." });
+    }
+  });
+  ffmpeg.on("close", (code) => {
+    if (code && code !== 0) {
+      req.log.warn({ code }, "HLS conversion exited with non-zero status");
+    }
+  });
+  req.on("close", () => {
+    ffmpeg.kill("SIGTERM");
+  });
+});
 
 router.post("/extract", async (req, res): Promise<void> => {
   const parsed = ExtractVideoBody.safeParse(req.body);
 
   if (!parsed.success) {
-    res.status(400).json({ error: "Please paste a valid yappy.media video link." });
+    res.status(400).json({ error: "Please paste a valid yappy.media or rutube.ru video link." });
     return;
   }
 
@@ -251,44 +526,58 @@ router.post("/extract", async (req, res): Promise<void> => {
   try {
     pageUrl = new URL(parsed.data.url);
   } catch {
-    res.status(400).json({ error: "Please paste a valid yappy.media video link." });
+    res.status(400).json({ error: "Please paste a valid yappy.media or rutube.ru video link." });
     return;
   }
 
-  if (!["http:", "https:"].includes(pageUrl.protocol) || !YAPPY_HOST_PATTERN.test(pageUrl.hostname)) {
-    res.status(400).json({ error: "Only yappy.media video links are supported." });
+  if (!["http:", "https:"].includes(pageUrl.protocol)) {
+    res.status(400).json({ error: "Please paste a valid web link." });
+    return;
+  }
+
+  const platform = getPlatform(pageUrl);
+  if (!platform) {
+    res.status(400).json({ error: "Unsupported link. Please use yappy.media or rutube.ru." });
     return;
   }
 
   try {
-    const response = await fetch(pageUrl, {
-      headers: {
-        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "user-agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-      },
-      redirect: "follow",
+    const response = await axios.get<string>(pageUrl.toString(), {
+      headers: requestHeaders,
+      responseType: "text",
+      maxRedirects: 5,
+      timeout: 20000,
+      validateStatus: (status) => status < 500,
     });
 
-    if (!response.ok) {
-      req.log.warn({ status: response.status }, "Remote page fetch failed");
-      res.status(502).json({ error: "Could not load that yappy.media page. Try checking the link." });
+    if (response.status === 401 || response.status === 403) {
+      res.status(403).json({ error: "This video appears to be private or restricted." });
       return;
     }
 
-    const html = await response.text();
-    const extracted = extractVideoData(html, pageUrl);
+    if (response.status >= 400) {
+      req.log.warn({ status: response.status, platform }, "Remote page fetch failed");
+      res.status(502).json({ error: "Could not load that video page. Try checking the link." });
+      return;
+    }
+
+    const html = response.data;
+    const extracted = platform === "yappy"
+      ? extractYappyVideoData(html, pageUrl)
+      : await extractRutubeVideoData(html, pageUrl);
 
     if (!extracted) {
       res.status(422).json({
-        error: "No direct downloadable video source was found on that page.",
+        error: platform === "rutube"
+          ? "No downloadable Rutube stream was found. The video may be private or restricted."
+          : "No direct downloadable video source was found on that page.",
       });
       return;
     }
 
     res.json(ExtractVideoResponse.parse(extracted));
   } catch (error) {
-    req.log.error({ err: error }, "Video extraction failed");
+    req.log.error({ err: error, platform }, "Video extraction failed");
     res.status(502).json({ error: "The page could not be fetched right now. Please try again." });
   }
 });
