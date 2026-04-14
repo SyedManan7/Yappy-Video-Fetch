@@ -41,6 +41,9 @@ export const ExtractVideoResponse = zod.object({
       sourceType: zod.enum(["mp4", "hls"]),
       width: zod.number().nullable(),
       height: zod.number().nullable(),
+      fileSizeBytes: zod.number().nullable(),
+      fileSizeLabel: zod.string().nullable(),
+      recommended: zod.boolean(),
     }),
   ),
 });

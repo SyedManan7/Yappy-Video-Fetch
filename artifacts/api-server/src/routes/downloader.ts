@@ -15,6 +15,9 @@ type QualityOption = {
   sourceType: SourceType;
   width: number | null;
   height: number | null;
+  fileSizeBytes: number | null;
+  fileSizeLabel: string | null;
+  recommended: boolean;
 };
 
 type ExtractedVideo = {
@@ -35,6 +38,14 @@ type Candidate = {
   width: number | null;
   height: number | null;
   label: string | null;
+  fileSizeBytes: number | null;
+};
+
+type CandidateMetadata = {
+  width?: number | null;
+  height?: number | null;
+  label?: string | null;
+  fileSizeBytes?: number | null;
 };
 
 const router: IRouter = Router();
@@ -113,6 +124,99 @@ function getResolution(url: string): { width: number | null; height: number | nu
   return { width: null, height: null };
 }
 
+function getResolutionFromText(value: string): { width: number | null; height: number | null } {
+  const heightMatch = value.match(/(?:^|[^0-9])([1-9][0-9]{2,3})p(?:[^0-9]|$)/i);
+  if (heightMatch?.[1]) {
+    return { width: null, height: Number(heightMatch[1]) };
+  }
+
+  const resolutionMatch = value.match(/([1-9][0-9]{2,4})x([1-9][0-9]{2,4})/i);
+  if (resolutionMatch?.[1] && resolutionMatch[2]) {
+    return { width: Number(resolutionMatch[1]), height: Number(resolutionMatch[2]) };
+  }
+
+  return { width: null, height: null };
+}
+
+function parsePositiveInteger(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.round(value);
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/[^0-9.]/g, ""));
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.round(parsed);
+    }
+  }
+
+  return null;
+}
+
+function formatBytes(value: number | null): string | null {
+  if (!value) return null;
+
+  const units = ["B", "KB", "MB", "GB"];
+  let size = value;
+  let unitIndex = 0;
+
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+
+  return `${size >= 10 || unitIndex === 0 ? Math.round(size) : size.toFixed(1)} ${units[unitIndex]}`;
+}
+
+function metadataFromObject(value: Record<string, unknown>): CandidateMetadata {
+  let width: number | null = null;
+  let height: number | null = null;
+  let label: string | null = null;
+  let fileSizeBytes: number | null = null;
+
+  for (const [key, entry] of Object.entries(value)) {
+    const lowerKey = key.toLowerCase();
+
+    if (["width", "w"].includes(lowerKey)) {
+      width = parsePositiveInteger(entry) ?? width;
+    }
+
+    if (["height", "h"].includes(lowerKey)) {
+      height = parsePositiveInteger(entry) ?? height;
+    }
+
+    if (
+      lowerKey.includes("size") ||
+      lowerKey.includes("filesize") ||
+      lowerKey.includes("file_size") ||
+      lowerKey.includes("contentlength")
+    ) {
+      fileSizeBytes = parsePositiveInteger(entry) ?? fileSizeBytes;
+    }
+
+    if (typeof entry === "string") {
+      const textResolution = getResolutionFromText(entry);
+      width = width ?? textResolution.width;
+      height = height ?? textResolution.height;
+
+      if (
+        lowerKey.includes("quality") ||
+        lowerKey.includes("resolution") ||
+        lowerKey.includes("label") ||
+        lowerKey.includes("name")
+      ) {
+        label = entry;
+      }
+    }
+  }
+
+  if (!label && height) {
+    label = `${height}p`;
+  }
+
+  return { width, height, label, fileSizeBytes };
+}
+
 function scoreVideoUrl(url: string, sourceType = getSourceType(url)): number {
   const lower = url.toLowerCase();
   let score = sourceType === "mp4" ? 100 : 60;
@@ -158,7 +262,7 @@ function makeQualityLabel(candidate: Candidate): string {
   return "Direct MP4";
 }
 
-function toQualityOption(candidate: Candidate): QualityOption {
+function toQualityOption(candidate: Candidate, recommended: boolean): QualityOption {
   const label = makeQualityLabel(candidate);
   return {
     label,
@@ -168,6 +272,9 @@ function toQualityOption(candidate: Candidate): QualityOption {
     sourceType: candidate.sourceType,
     width: candidate.width,
     height: candidate.height,
+    fileSizeBytes: candidate.fileSizeBytes,
+    fileSizeLabel: formatBytes(candidate.fileSizeBytes),
+    recommended,
   };
 }
 
@@ -176,8 +283,7 @@ function addCandidate(
   rawUrl: string | null | undefined,
   baseUrl: URL,
   scoreBoost = 0,
-  label: string | null = null,
-  resolution?: { width: number | null; height: number | null },
+  metadata: CandidateMetadata = {},
 ): void {
   if (!rawUrl) return;
 
@@ -189,7 +295,9 @@ function addCandidate(
   }
 
   const sourceType = getSourceType(normalized);
-  const detectedResolution = resolution ?? getResolution(normalized);
+  const detectedResolution = getResolution(normalized);
+  const width = metadata.width ?? detectedResolution.width;
+  const height = metadata.height ?? detectedResolution.height;
   const score = scoreVideoUrl(normalized, sourceType) + scoreBoost;
   const existing = candidates.get(normalized);
 
@@ -198,9 +306,10 @@ function addCandidate(
       url: normalized,
       score,
       sourceType,
-      width: detectedResolution.width,
-      height: detectedResolution.height,
-      label,
+      width,
+      height,
+      label: metadata.label ?? (height ? `${height}p` : null),
+      fileSizeBytes: metadata.fileSizeBytes ?? null,
     });
   }
 }

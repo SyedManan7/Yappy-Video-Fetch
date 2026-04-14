@@ -103,6 +103,12 @@ components:
           type: ["integer", "null"]
         height:
           type: ["integer", "null"]
+        fileSizeBytes:
+          type: ["integer", "null"]
+        fileSizeLabel:
+          type: ["string", "null"]
+        recommended:
+          type: boolean
       required:
         - label
         - quality
@@ -111,6 +117,9 @@ components:
         - sourceType
         - width
         - height
+        - fileSizeBytes
+        - fileSizeLabel
+        - recommended
     ExtractVideoResponse:
       type: object
       properties:
