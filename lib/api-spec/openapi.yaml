@@ -1,6 +1,5 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
   description: API specification
@@ -10,6 +9,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: downloader
+    description: Video extraction operations
 paths:
   /healthz:
     get:
@@ -24,6 +25,43 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /extract:
+    post:
+      operationId: extractVideo
+      tags: [downloader]
+      summary: Extract a direct video file URL
+      description: Fetches a yappy.media page and returns the best direct MP4 URL plus metadata when available.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExtractVideoRequest"
+      responses:
+        "200":
+          description: Video source extracted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtractVideoResponse"
+        "400":
+          description: Invalid URL or unsupported link
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: No downloadable video source found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Could not fetch the remote page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +71,40 @@ components:
           type: string
       required:
         - status
-
+    ExtractVideoRequest:
+      type: object
+      properties:
+        url:
+          type: string
+          minLength: 1
+      required:
+        - url
+    ExtractVideoResponse:
+      type: object
+      properties:
+        videoUrl:
+          type: string
+        downloadUrl:
+          type: string
+        hdVideoUrl:
+          type: ["string", "null"]
+        thumbnailUrl:
+          type: ["string", "null"]
+        title:
+          type: ["string", "null"]
+        quality:
+          type: string
+      required:
+        - videoUrl
+        - downloadUrl
+        - hdVideoUrl
+        - thumbnailUrl
+        - title
+        - quality
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error

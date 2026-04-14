@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Yappy Video Downloader"
+version = "1.0.0"
+id = "artifacts/yappy-video-downloader"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19826
+
+[services.development]
+run = "pnpm --filter @workspace/yappy-video-downloader run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/yappy-video-downloader", "run", "build" ]
+publicDir = "artifacts/yappy-video-downloader/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19826"
+BASE_PATH = "/"

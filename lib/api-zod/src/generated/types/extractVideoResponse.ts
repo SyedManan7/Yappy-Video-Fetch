@@ -5,14 +5,6 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
-export interface HealthStatus {
-  status: string;
-}
-
-export interface ExtractVideoRequest {
-  /** @minLength 1 */
-  url: string;
-}
 
 export interface ExtractVideoResponse {
   videoUrl: string;
@@ -24,8 +16,4 @@ export interface ExtractVideoResponse {
   /** @nullable */
   title: string | null;
   quality: string;
-}
-
-export interface ErrorResponse {
-  error: string;
 }

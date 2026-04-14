@@ -14,3 +14,21 @@ import * as zod from "zod";
 export const HealthCheckResponse = zod.object({
   status: zod.string(),
 });
+
+/**
+ * Fetches a yappy.media page and returns the best direct MP4 URL plus metadata when available.
+ * @summary Extract a direct video file URL
+ */
+
+export const ExtractVideoBody = zod.object({
+  url: zod.string().min(1),
+});
+
+export const ExtractVideoResponse = zod.object({
+  videoUrl: zod.string(),
+  downloadUrl: zod.string(),
+  hdVideoUrl: zod.string().nullable(),
+  thumbnailUrl: zod.string().nullable(),
+  title: zod.string().nullable(),
+  quality: zod.string(),
+});
