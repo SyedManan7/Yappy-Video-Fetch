@@ -32,11 +32,6 @@ export interface QualityOption {
   width: number | null;
   /** @nullable */
   height: number | null;
-  /** @nullable */
-  fileSizeBytes: number | null;
-  /** @nullable */
-  fileSizeLabel: string | null;
-  recommended: boolean;
 }
 
 export type ExtractVideoResponsePlatform =
