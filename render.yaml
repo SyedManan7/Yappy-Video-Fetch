@@ -25,7 +25,7 @@ services:
     name: yappy-downloader
     runtime: static
     buildCommand: pnpm install && pnpm --filter ...@workspace/yappy-video-downloader run build
-    staticPublishPath: artifacts/yappy-video-downloader/dist
+    staticPublishPath: artifacts/yappy-video-downloader/dist/public
     envVars:
       - key: NODE_VERSION
         value: 20
