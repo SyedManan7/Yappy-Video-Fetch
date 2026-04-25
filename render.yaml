@@ -4,11 +4,13 @@ services:
     name: yappy-api
     runtime: node
     plan: free
-    buildCommand: npm install -g pnpm && pnpm install && pnpm -r --if-present run build
+    buildCommand: pnpm install && pnpm -r --if-present run build
     startCommand: pnpm --filter @workspace/api-server start
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: PNPM_VERSION
+        value: 9.12.0
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
@@ -22,11 +24,13 @@ services:
   - type: web
     name: yappy-downloader
     runtime: static
-    buildCommand: npm install -g pnpm && pnpm install && pnpm -r --if-present run build
+    buildCommand: pnpm install && pnpm -r --if-present run build
     staticPublishPath: artifacts/yappy-video-downloader/dist
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: PNPM_VERSION
+        value: 9.12.0
       - key: VITE_API_URL
         fromService:
           type: web
