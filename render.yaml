@@ -22,7 +22,7 @@ services:
   - type: web
     name: yappy-downloader
     runtime: static
-    buildCommand: npm install -g pnpm && pnpm install && pnpm run build --filter @workspace/yappy-video-downloader
+    buildCommand: npm install -g pnpm && pnpm install && pnpm -r --if-present run build
     staticPublishPath: artifacts/yappy-video-downloader/dist
     envVars:
       - key: NODE_VERSION
