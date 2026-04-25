@@ -17,10 +17,11 @@ services:
         value: 10000
 
   # Frontend Static Site
-  - type: static_site
+  - type: web
     name: yappy-downloader
+    runtime: static
     buildCommand: npm install -g pnpm && pnpm install && pnpm run build --filter @workspace/yappy-video-downloader
-    publishPath: artifacts/yappy-video-downloader/dist
+    staticPublishPath: artifacts/yappy-video-downloader/dist
     envVars:
       - key: VITE_API_URL
         fromService:
