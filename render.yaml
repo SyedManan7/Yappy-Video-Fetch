@@ -27,7 +27,7 @@ services:
         fromService:
           type: web
           name: yappy-api
-          property: url
+          property: host
     # This ensures that SPAs work correctly on Render
     routes:
       - type: rewrite

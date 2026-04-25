@@ -8,7 +8,11 @@ import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 
 if (import.meta.env.VITE_API_URL) {
-  setBaseUrl(import.meta.env.VITE_API_URL);
+  let apiUrl = import.meta.env.VITE_API_URL;
+  if (!apiUrl.startsWith("http")) {
+    apiUrl = `https://${apiUrl}`;
+  }
+  setBaseUrl(apiUrl);
 }
 
 const queryClient = new QueryClient({
