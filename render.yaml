@@ -4,7 +4,7 @@ services:
     name: yappy-api
     runtime: node
     plan: free
-    buildCommand: pnpm install && pnpm -r --if-present run build
+    buildCommand: pnpm install && pnpm --filter ...@workspace/api-server run build
     startCommand: pnpm --filter @workspace/api-server start
     envVars:
       - key: NODE_VERSION
@@ -24,7 +24,7 @@ services:
   - type: web
     name: yappy-downloader
     runtime: static
-    buildCommand: pnpm install && pnpm -r --if-present run build
+    buildCommand: pnpm install && pnpm --filter ...@workspace/yappy-video-downloader run build
     staticPublishPath: artifacts/yappy-video-downloader/dist
     envVars:
       - key: NODE_VERSION
