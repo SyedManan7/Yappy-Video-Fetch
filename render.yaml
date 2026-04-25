@@ -17,7 +17,7 @@ services:
         value: 10000
 
   # Frontend Static Site
-  - type: static
+  - type: static_site
     name: yappy-downloader
     buildCommand: npm install -g pnpm && pnpm install && pnpm run build --filter @workspace/yappy-video-downloader
     publishPath: artifacts/yappy-video-downloader/dist
